@@ -156,3 +156,10 @@ If you use this code, please cite:
 - Marcin Łoś,  Adriank Kłusek, M. Amber Hassaan, Keshav Pingali, Witold Dzwinel and Maciej Paszyński.
   Parallel fast isogeometric L2 projection solver with GALOIS system for 3D tumor growth simulations.
   _Computer Methods in Applied Mechanics and Engineering_, 343:1-22, 2019.
+
+## Tips
+cmake . -B build -D ADS_USE_GALOIS=ON
+cd build
+make ads-example-cannon
+cd examples
+./cannon
