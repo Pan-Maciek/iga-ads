@@ -88,6 +88,11 @@ if (ADS_USE_GALOIS)
   target_link_libraries(ads-objects PUBLIC Galois::shmem)
 endif()
 
+if (ADS_USE_CNPY)
+  target_link_libraries(ads-objects PUBLIC cnpy)
+  target_link_libraries(ads-objects PUBLIC z)
+endif()
+
 # --------------------------------------------------------------------
 # Subdirectories
 # --------------------------------------------------------------------

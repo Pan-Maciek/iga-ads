@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <ostream>
 #include <vector>
+#include <cnpy.h>
 
 #include "ads/bspline/bspline.hpp"
 #include "ads/bspline/eval.hpp"
@@ -22,11 +23,16 @@ namespace ads {
 
 const output::output_format DEFAULT_FMT = output::fixed_format(10, 18);
 
-template <std::size_t Dim>
+enum FILE_FORMAT {
+  VTI,
+  NPY
+};
+
+template <std::size_t Dim, FILE_FORMAT Format = FILE_FORMAT::VTI>
 struct output_manager;
 
 template <>
-struct output_manager<1> : output_manager_base<output_manager<1>> {
+struct output_manager<1, FILE_FORMAT::VTI> : output_manager_base<output_manager<1>> {
 private:
     output::axis x;
     lin::tensor<double, 1> vals;
@@ -50,7 +56,7 @@ public:
 };
 
 template <>
-struct output_manager<2> : output_manager_base<output_manager<2>> {
+struct output_manager<2, FILE_FORMAT::VTI> : output_manager_base<output_manager<2>> {
 private:
     output::axis x, y;
     lin::tensor<double, 2> vals;
@@ -77,7 +83,7 @@ public:
 };
 
 template <>
-struct output_manager<3> : output_manager_base<output_manager<3>> {
+struct output_manager<3, FILE_FORMAT::VTI> : output_manager_base<output_manager<3>> {
 private:
     using value_array = lin::tensor<double, 3>;
     output::axis x, y, z;
@@ -143,6 +149,55 @@ private:
         auto grid = make_grid(x.range(), y.range(), z.range());
         output.print(os, grid, values...);
     }
+};
+
+template <>
+struct output_manager<3, FILE_FORMAT::NPY> : output_manager_base<output_manager<3, FILE_FORMAT::NPY>> {
+private:
+    using value_array = lin::tensor<double, 3>;
+    output::axis x, y, z;
+    value_array vals;
+    output::vtk output{DEFAULT_FMT};
+
+public:
+    output_manager(const bspline::basis& bx, const bspline::basis& by, const bspline::basis& bz,
+                   std::size_t nx, std::size_t ny, std::size_t nz)
+    : x{bx, nx}
+    , y{by, ny}
+    , z{bz, nz}
+    , vals{{x.size(), y.size(), z.size()}} { }
+
+    output_manager(const bspline::basis& bx, const bspline::basis& by, const bspline::basis& bz,
+                   std::size_t n)
+    : output_manager{bx, by, bz, n, n, n} { }
+
+    using output_manager_base::to_file;
+
+    template <typename Solution>
+    void evaluate(const Solution& sol, value_array& out) {
+        for (int i = 0; i < x.size(); ++i) {
+            for (int j = 0; j < y.size(); ++j) {
+                for (int k = 0; k < z.size(); ++k) {
+                    out(i, j, k) = bspline::eval(x[i], y[j], z[k], sol, x.basis, y.basis, z.basis,
+                                                 x.ctx, y.ctx, z.ctx);
+                }
+            }
+        }
+    }
+
+    template <typename Solution>
+    value_array evaluate(const Solution& sol) {
+        value_array out{{x.size(), y.size(), z.size()}};
+        evaluate(sol, out);
+        return out;
+    }
+
+    template <typename Solution>
+    void to_file(const Solution& sol, const std::string& output_file) {
+        evaluate(sol, vals);
+        cnpy::npy_save(output_file, &vals.data()[0], {x.size(), y.size(), z.size()});
+    }
+
 };
 
 }  // namespace ads

@@ -20,7 +20,7 @@ private:
 
     galois_executor executor{4};
 
-    output_manager<3> output;
+    output_manager<3, FILE_FORMAT::NPY> output;
 
 public:
     flow(const config_3d& config)
@@ -30,7 +30,7 @@ public:
     , output{ x.B, y.B, z.B, 200 }
     { }
 
-    double init_state(double x, double y, double z) {
+    double init_state(double, double, double) {
       // pomyśleć nad innym statnem początkowym, chmura już w powietrzu
         return 0;
     };
@@ -54,11 +54,11 @@ private:
     }
 
     double s;
-    void before_step(int iter, double /*t*/) override {
+    void before_step(int /* iter */, double /*t*/) override {
         using std::swap;
         swap(u, u_prev);
-        const double d = 0.7;
-        const double c = 10000;
+        // const double d = 0.7;
+        // const double c = 10000;
         // s = std::max(((cos(iter * 3.14159265358979 / c) - d) * 1 / (1-d)), 0.);
         // std::cout << "\r" << iter << "/" << iterations << " (s=" << s << ")                          \r";
     }
@@ -120,7 +120,8 @@ private:
     void after_step(int iter, double /*t*/) override {
         std::cout << iter << std::endl;
         if ((iter + 1) % 100 == 0) {
-            output.to_file(u, "out_%d.vti", iter + 1);
+            output.to_file(u, "out_%d.npy", iter + 1);
+            // output_npy.to_file(u, "out_%d.npy", iter + 1);
         }
     }
 };
