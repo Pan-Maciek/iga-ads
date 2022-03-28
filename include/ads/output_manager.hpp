@@ -195,7 +195,10 @@ public:
     template <typename Solution>
     void to_file(const Solution& sol, const std::string& output_file) {
         evaluate(sol, vals);
-        cnpy::npy_save(output_file, &vals.data()[0], {x.size(), y.size(), z.size()});
+        unsigned long int nx = x.size();
+        unsigned long int ny = y.size();
+        unsigned long int nz = z.size();
+        cnpy::npy_save(output_file, &vals.data()[0], {nx, ny, nz});
     }
 
 };
