@@ -34,7 +34,7 @@ public:
     { }
 
     double init_state(double, double, double) {
-      // pomyśleć nad innym statnem początkowym, chmura już w powietrzu
+        // pomyśleć nad innym statnem początkowym, chmura już w powietrzu
         return 0;
     };
 
@@ -89,7 +89,8 @@ private:
         x=x/40.;
         y=y/40.;
         z=z/40.;
-        if(x>0.3&&x<0.6&&t>10000)
+
+        if((x > 0.3 && x <0.6) && (y > 0.3 && y < 0.6) && t > 10000)
             return 200.*(1.-z)
               * max(sin(10*M_PI*x),0)
               * max(sin(10*M_PI*y),0)
