@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include "ads/executor/galois.hpp"
+#include <cnpy.h>
 
 #include "ads/simulation.hpp"
 #include "ads/output_manager.hpp"
@@ -22,7 +23,7 @@ private:
 
     galois_executor executor{12};
 
-    output_manager<3, FILE_FORMAT::VTI> output;
+    output_manager<3, FILE_FORMAT::NPY> output;
 
 public:
     flow(const config_3d& config)
@@ -32,11 +33,6 @@ public:
     , stop_gen(false)
     , output{ x.B, y.B, z.B, 100 }
     { }
-
-    double init_state(double, double, double) {
-        // pomyśleć nad innym statnem początkowym, chmura już w powietrzu
-        return 0;
-    };
 
 private:
 
@@ -49,8 +45,11 @@ private:
     void before() override {
         prepare_matrices();
 
-        auto init = [this](double x, double y, double z) { return init_state(x, y, z); };
-        projection(u, init);
+        // auto init = [](double, double, double) { return 0; };
+        // projection(u, init);
+        auto npy = cnpy::npy_load("state12500.npy");
+        std::memcpy(u.data(), npy.data<double>(), sizeof(double) * u.size());
+
         solve(u);
     }
 
@@ -64,8 +63,9 @@ private:
         solve(u);
     }
 
-    double delta_T(int p){
-        if(p>30) return 0.;
+    // change in temperature over hight
+    double delta_T(double z){
+        if(h > 0.75) return 0.;
         return -5.;
     }
 
@@ -73,29 +73,32 @@ private:
         return x > y ? x : y;
     }
 
-    double f(int p){
-        if(p<5&&stop_gen==0)
-            return (1.-p/5.) * 50;
-        else if(p<35)
-            return 0.;
-        // else
-        //     return 7.-p/5.;
-        
+    // "polution generation"
+    double f(double p){
+        if (p < 0.125 && stop_gen==0)
+            return (50 - p * 400);
         return 0.;
-        
     }
 
-    double cannon(double x, double y, double z, double t){
-        x=x/40.;
-        y=y/40.;
-        z=z/40.;
+    // control the cannon duration
+    template <int t_begin, int t_end>
+    double clock(double t) {
+        if (t < t_begin || t > t_end) return 0;
+        t = (t - t_begin) / (t_end - t_begin);
+        return max(sin(2*M_PI*t) * cos(t), 0);
+    }
 
-        if((x > 0.3 && x <0.6) && (y > 0.3 && y < 0.6) && t > 10000)
-            return 200.*(1.-z)
-              * max(sin(10*M_PI*x),0)
-              * max(sin(10*M_PI*y),0)
-              * max(0,sin(M_PI*(t-8000)/1000));
-        else return 0.;
+    template <int t_begin, int t_end>
+    double cannon(double x, double y, double z, int iter){
+      if ((x > 0.2 && x < 0.8) && (y > 0.2 && y < 0.8)) {
+        double t = clock<t_begin, t_end>(iter);
+        if (t == 0) return 0;
+        return 300 * (1 - z)
+            * max(-cos(2*M_PI*x), 0)
+            * max(-cos(2*M_PI*y), 0)
+            * t;
+      }
+      return 0;
     }
 
     const double k_x = 1.0, k_y = 1.0, k_z = 0.1;
@@ -117,11 +120,29 @@ private:
                     value_type v = eval_basis(e, q, a);
 
                     double gradient_prod = (k_x * u.dx * v.dx) + (k_y * u.dy * v.dy) + (k_z * u.dz * v.dz);
+
+                    double x = e[0] / static_cast<double>(element_count);
+                    double y = e[1] / static_cast<double>(element_count);
+                    double z = e[2] / static_cast<double>(element_count);
+
                     double val = 
                         (u.val * v.val) 
                         - (steps.dt * gradient_prod) 
-                        + (steps.dt * (delta_T(e[2]) - cannon(e[0], e[1], e[2], iter)) * u.dz * v.val)
-                        + steps.dt * f(e[2]) * v.val;
+                        + (steps.dt * (
+                              //  delta_T(z)
+                              - cannon<0, 300>(x, y, z, iter)
+                              - cannon<200, 500>(x, y, z, iter)
+                              - cannon<400, 700>(x, y, z, iter)
+                              - cannon<600, 900>(x, y, z, iter)
+                              - cannon<800, 1100>(x, y, z, iter)
+                              - cannon<1000, 1300>(x, y, z, iter)
+                              - cannon<1200, 1500>(x, y, z, iter)
+                              - cannon<1400, 1700>(x, y, z, iter)
+                              - cannon<1600, 1900>(x, y, z, iter)
+                              - cannon<1800, 2100>(x, y, z, iter)
+                              - cannon<2000, 2300>(x, y, z, iter)
+                            ) * u.dz * v.val)
+                        ; //+ steps.dt * f(e[2]) * v.val;
 
                     U(aa[0], aa[1], aa[2]) += val * w * J;
                 }
@@ -132,10 +153,15 @@ private:
     }
 
     void after_step(int iter, double /*t*/) override {
-        std::cout << iter << std::endl;
+        // save simulation state
+        // if (iter == 12500) {
+        //   cnpy::npy_save("state12500.npy", u.data(), {u.size()});
+        //   exit(0);
+        // }
         if (iter > 5000) stop_gen = true;
-        if ((iter + 1) % 100 == 0) {
-            output.to_file(u, "out_%d.vti", iter + 1);
+        if ((iter+1) % 10 == 0) {
+            std::cout << iter + 1 << std::endl;
+            output.to_file(u, "out_%d.npy", iter + 1);
         }
     }
 };
