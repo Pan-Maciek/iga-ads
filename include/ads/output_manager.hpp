@@ -83,6 +83,35 @@ public:
 };
 
 template <>
+struct output_manager<2, FILE_FORMAT::NPY> : output_manager_base<output_manager<2, FILE_FORMAT::NPY>> {
+private:
+    output::axis x, y;
+    lin::tensor<double, 2> vals;
+    output::gnuplot_printer<2> output{DEFAULT_FMT};
+
+public:
+    output_manager(const bspline::basis& bx, const bspline::basis& by, std::size_t n)
+    : x{bx, n}
+    , y{by, n}
+    , vals{{x.size(), y.size()}} { }
+
+    using output_manager_base::to_file;
+
+    template <typename Solution>
+    void to_file(const Solution& sol, const std::string& output_file) {
+        for (int i = 0; i < x.size(); ++i) {
+            for (int j = 0; j < y.size(); ++j) {
+                vals(i, j) = bspline::eval(x[i], y[j], sol, x.basis, y.basis, x.ctx, y.ctx);
+            }
+        }
+        unsigned long int nx = x.size();
+        unsigned long int ny = y.size();
+        cnpy::npy_save(output_file, &vals.data()[0], {nx, ny});
+    }
+
+};
+
+template <>
 struct output_manager<3, FILE_FORMAT::VTI> : output_manager_base<output_manager<3>> {
 private:
     using value_array = lin::tensor<double, 3>;

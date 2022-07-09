@@ -48,6 +48,10 @@ add_example(cannon GALOIS
   SRC
   cannon/main.cpp)
 
+add_example(cannon2d GALOIS
+  SRC
+  cannon2d/main.cpp)
+
 add_example(linear_elasticity GALOIS
   SRC
   elasticity/main.cpp)
