@@ -7,13 +7,11 @@
 #include "ads/executor/galois.hpp"
 
 #include <cnpy.h>
-#include <indicators/cursor_control.hpp>
 #include <indicators/progress_bar.hpp>
 
 #include "ads/simulation.hpp"
 #include "ads/output_manager.hpp"
 
-const int element_count = 40;
 using namespace indicators;
 
 namespace ads {
@@ -24,36 +22,39 @@ class flow : public simulation_2d {
 private:
   using Base = simulation_2d;
   vector_type u, u_prev;
+  std::string initial_state;
 
   galois_executor executor{12};
 
   output_manager<2, FILE_FORMAT::NPY> output;
   ProgressBar bar{
-    option::BarWidth{50},
+    option::BarWidth{40},
     option::ShowRemainingTime{true},
     option::ShowPercentage{true},
     option::PostfixText{"2d simulation"},
   };
 
+
 public:
-  flow(const config_2d& config)
+  flow(const config_2d& config, std::string initial_state)
     : Base{config}
     , u{shape()}
     , u_prev{shape()}
-    , output{ x.B, y.B, 100 }
+    , initial_state{initial_state}
+    , output{x.B, y.B, 100}
+    , x_element_count{static_cast<double>(config.x.elements-1)}
+    , y_element_count{static_cast<double>(config.y.elements-1)}
   { 
     bar.set_progress(0);
   }
 
 private:
-  struct point_type { 
-    point_type(index_type e) : 
-      x(e[0] / static_cast<double>(element_count - 1)), 
-      y(e[1] / static_cast<double>(element_count - 1)) 
-    {}
+  struct point_type { double x, y; };
 
-    double x, y;
-  };
+  double x_element_count, y_element_count; // count - 1
+  inline const point_type point_at(index_type e) const {
+    return {e[0] / x_element_count, e[1] / y_element_count};
+  }
 
   inline double source(const point_type p, const value_type /*u*/, const value_type v, const double /*t*/) const {
     if (p.y < 0.125) {
@@ -80,20 +81,40 @@ private:
     return Kx * u.dx * v.dx + Ky * u.dy * v.dy;
   }
 
+  // calculate (u, v)
+  inline double metric(const value_type u, const value_type v) const {
+    return u.val * v.val;
+  }
+
+  double metric(const vector_type& state) const {
+    double sum = 0;
+    for (auto e : elements()) {
+      double J = jacobian(e);
+      for (auto q : quad_points()) {
+        double w = weight(q);
+        for (auto a : dofs_on_element(e)) {
+          const value_type v = eval_basis(e, q, a);
+          const value_type u = eval_fun(state, e, q);
+
+          sum += metric(u, v) * w * J;
+        }
+      }
+    }
+    return sum;
+  }
 
   void before() override {
     prepare_matrices();
 
-    auto init = [](double, double) { return 0; };
-    projection(u, init);
-    // auto npy = cnpy::npy_load("state12500.npy");
-    // std::memcpy(u.data(), npy.data<double>(), sizeof(double) * u.size());
+    if (initial_state == "") {
+      auto init = [](double, double) { return 0; };
+      projection(u, init);
+    }
+    else {
+      load_state(initial_state); // example: "initial_state.npy" (u)
+    }
 
-    solve(u);
-  }
-
-  void after() override {
-    bar.set_progress(100);
+    save_projection(0);
   }
 
   void compute_rhs(int /*iter*/, double t) {
@@ -112,7 +133,7 @@ private:
           auto local_a = dof_global_to_local(e, a);
           const value_type v = eval_basis(e, q, a); // test function
           const double dt = steps.dt;
-          const point_type p(e); // position in domain
+          const point_type p = point_at(e); // position in domain
 
           double val = (u.val * v.val) +
             dt * (
@@ -129,6 +150,38 @@ private:
     });
   }
 
+  // save the state of the simulation (u)
+  void save_state(int iter) {
+    static boost::format fmt("state_%d.npy");
+    auto filename = (fmt % iter).str();
+    unsigned long int size = u.size();
+    cnpy::npy_save(filename, u.data(), {size});
+  }
+
+  void load_state(std::string filename) {
+    auto npy = cnpy::npy_load(filename);
+    unsigned long int size = u.size();
+    if (!(npy.shape.size() == 1 && npy.shape[0] == size)) {
+      std::cerr << "Specified file does not contain valid state (invalid shape)" << std::endl;
+      exit(1);
+    }
+
+    std::memcpy(u.data(), npy.data<double>(), sizeof(double) * size);
+  }
+
+  void save_projection(int iter) {
+    output.to_file(u, "out_%d.npy", iter);
+  }
+
+  void save_metric(int iter) {
+    static boost::format fmt("metric_%d.npy");
+    auto filename = (fmt % iter).str();
+
+    std::fstream file(filename);
+    file << metric(u) << std::endl;
+    file.close();
+  }
+
   void step(int iter, double t) override {
     compute_rhs(iter, t);
     solve(u);
@@ -139,10 +192,12 @@ private:
   }
 
   void after_step(int iter, double /*t*/) override {
+    iter += 1;
     bar.set_progress(100 * iter / steps.step_count);
+
     // save every 100th step
     if (iter % 100 == 0) {
-      output.to_file(u, "out_%d.npy", iter);
+      save_projection(iter);
     }
   }
 
